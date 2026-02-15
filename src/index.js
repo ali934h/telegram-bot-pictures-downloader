@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 3: Fixed to only extract gallery images, not page thumbnails
+ * Step 3: Fixed regex to match gallery images from CDN
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -152,64 +152,47 @@ async function processUrl(chatId, url, env) {
 
 /**
  * Extract high-quality image URLs from HTML
- * Only extract images from gallery links with fancy/fancybox attributes
+ * Only extract images from gallery links with fancy/fancybox attributes pointing to CDN
  */
 function extractHighQualityImages(html, baseUrl) {
 	const imageUrls = new Set();
 	
-	// ONLY extract gallery links with class="fancy" or data-fancybox="gallery"
-	// These are the actual gallery images, not page thumbnails
+	// Extract gallery links with class="fancy" or data-fancybox="gallery-XX"
+	// Match href pointing to CDN image URLs (not HTML pages)
 	
-	// Pattern 1: <a ...class="fancy"... href="image.jpg"...>
-	const galleryLinkRegex1 = /<a[^>]*class=["'][^"']*fancy[^"']*["'][^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	// Pattern 1: <a ...class="fancy"... href="https://cdn...jpg"...>
+	const galleryLinkRegex1 = /<a[^>]*class=["'][^"']*fancy[^"']*["'][^>]*href=["'](https?:\/\/[^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
 	let match;
 	while ((match = galleryLinkRegex1.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// Pattern 2: <a ...href="image.jpg"...class="fancy"...>
-	const galleryLinkRegex2 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*class=["'][^"']*fancy[^"']*["'][^>]*>/gi;
+	// Pattern 2: <a ...href="https://cdn...jpg"...class="fancy"...>
+	const galleryLinkRegex2 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*class=["'][^"']*fancy[^"']*["'][^>]*>/gi;
 	while ((match = galleryLinkRegex2.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// Pattern 3: <a ...data-fancybox="gallery"... href="image.jpg"...>
-	const galleryLinkRegex3 = /<a[^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	// Pattern 3: <a ...data-fancybox="gallery-XX"... href="https://cdn...jpg"...>
+	const galleryLinkRegex3 = /<a[^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*href=["'](https?:\/\/[^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
 	while ((match = galleryLinkRegex3.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// Pattern 4: <a ...href="image.jpg"...data-fancybox="gallery"...>
-	const galleryLinkRegex4 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*>/gi;
+	// Pattern 4: <a ...href="https://cdn...jpg"...data-fancybox="gallery-XX"...>
+	const galleryLinkRegex4 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*>/gi;
 	while ((match = galleryLinkRegex4.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// Convert relative URLs to absolute
-	const absoluteUrls = Array.from(imageUrls).map(url => {
-		if (url.startsWith('//')) {
-			return 'https:' + url;
-		} else if (url.startsWith('/')) {
-			const base = new URL(baseUrl);
-			return base.origin + url;
-		} else if (!url.startsWith('http')) {
-			try {
-				return new URL(url, baseUrl).href;
-			} catch {
-				return url;
-			}
-		}
-		return url;
-	});
-
-	// Filter high-quality images
-	const filtered = filterHighQualityImages(absoluteUrls);
+	// Convert to array and filter
+	const filtered = filterHighQualityImages(Array.from(imageUrls));
 	
 	return filtered;
 }
 
 /**
- * Filter out thumbnails, logos, and ads - keep only high-quality images
+ * Filter out thumbnails - keep only high-quality images from CDN
  */
 function filterHighQualityImages(urls) {
 	const filtered = [];
@@ -220,9 +203,18 @@ function filterHighQualityImages(urls) {
 		const cleanUrl = url.split('?')[0];
 		if (seen.has(cleanUrl)) continue;
 		
-		// Skip thumbnails with _wXXX or _masonry_XXX patterns
-		if (url.match(/_(w|masonry_)\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
+		// Skip masonry thumbnails (used for page previews)
+		if (url.includes('_masonry_')) {
 			continue;
+		}
+		
+		// Skip small thumbnail patterns _wXXX where XXX < 1000
+		const thumbnailMatch = url.match(/_w(\d{2,4})\.(jpg|jpeg|png|webp|gif)$/i);
+		if (thumbnailMatch) {
+			const size = parseInt(thumbnailMatch[1]);
+			if (size < 1000) {
+				continue; // Skip _w200, _w400, _w600, _w800
+			}
 		}
 		
 		// Skip common thumbnail/icon patterns
@@ -253,8 +245,8 @@ function filterHighQualityImages(urls) {
 			continue;
 		}
 
-		// Only include image URLs
-		if (url.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+		// Only include CDN image URLs
+		if (url.match(/https?:\/\/cdn\.[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)$/i)) {
 			filtered.push(url);
 			seen.add(cleanUrl);
 		}
