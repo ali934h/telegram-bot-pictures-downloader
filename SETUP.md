@@ -57,6 +57,23 @@ Open your bot in Telegram and send `/start`. You should receive a welcome messag
 - Only authorized users can interact
 - URL detection implemented
 
-⏳ Coming Next:
-- Step 2: Web scraping and image extraction
-- Step 3: Image download and delivery
+✅ Step 2 Complete: Web scraping and image delivery
+- Extracts images from any webpage
+- Filters out thumbnails, logos, and ads
+- Only sends high-quality images (>100KB)
+- Delivers images as files to Telegram
+
+## How to Use
+
+1. Send `/start` to verify authorization
+2. Send any URL containing images
+3. Bot will extract, filter, and send high-quality images
+4. Images are delivered as files (not compressed)
+
+## Features
+
+- **Smart Filtering**: Automatically removes thumbnails, logos, icons, and ads
+- **High Quality Only**: Only downloads images larger than 100KB
+- **Multiple Patterns**: Detects images in `<img>` tags, lazy-loaded images, direct links, and more
+- **Private Access**: Only authorized User IDs can use the bot
+- **File Delivery**: Images sent as documents to preserve quality
