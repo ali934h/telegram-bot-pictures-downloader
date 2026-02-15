@@ -1,7 +1,10 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 2: Add web scraping and image extraction
+ * Step 2: Fix infinite loop issue
  */
+
+// Track processing URLs to prevent duplicate processing
+const processingUrls = new Set();
 
 export default {
 	async fetch(request, env, ctx) {
@@ -13,15 +16,16 @@ export default {
 		try {
 			const update = await request.json();
 			
-			// Handle incoming message
-			if (update.message) {
-				await handleMessage(update.message, env);
+			// Handle incoming message (not edited message)
+			if (update.message && !update.edited_message) {
+				// Use ctx.waitUntil for background processing
+				ctx.waitUntil(handleMessage(update.message, env));
 			}
 			
 			return new Response('OK', { status: 200 });
 		} catch (error) {
 			console.error('Error processing request:', error);
-			return new Response('Internal Server Error', { status: 500 });
+			return new Response('OK', { status: 200 }); // Always return 200 to Telegram
 		}
 	},
 };
@@ -33,6 +37,15 @@ async function handleMessage(message, env) {
 	const chatId = message.chat.id;
 	const userId = message.from.id;
 	const text = message.text || '';
+	const messageId = message.message_id;
+
+	// Create unique key for this message
+	const messageKey = `${chatId}_${messageId}_${text}`;
+
+	// Prevent duplicate processing
+	if (processingUrls.has(messageKey)) {
+		return;
+	}
 
 	// Check if user is authorized
 	if (!isAuthorized(userId, env)) {
@@ -56,8 +69,16 @@ async function handleMessage(message, env) {
 
 	// Check if message contains a URL
 	if (text.startsWith('http://') || text.startsWith('https://')) {
-		await processUrl(chatId, text, env);
-	} else {
+		// Mark as processing
+		processingUrls.add(messageKey);
+		
+		try {
+			await processUrl(chatId, text, env);
+		} finally {
+			// Remove from processing set after completion
+			setTimeout(() => processingUrls.delete(messageKey), 60000); // Clean up after 1 minute
+		}
+	} else if (text && text.length > 0) {
 		await sendMessage(
 			chatId,
 			'❌ Please send a valid URL starting with http:// or https://',
