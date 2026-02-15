@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 3: Improved image extraction for gallery sites
+ * Step 3: Fixed to only extract gallery images, not page thumbnails
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -152,54 +152,36 @@ async function processUrl(chatId, url, env) {
 
 /**
  * Extract high-quality image URLs from HTML
- * Priority: Gallery links (full quality) > Direct image URLs > img tags
+ * Only extract images from gallery links with fancy/fancybox attributes
  */
 function extractHighQualityImages(html, baseUrl) {
 	const imageUrls = new Set();
 	
-	// PRIORITY 1: Gallery links with full-quality images
-	// Pattern: <a href="...jpg" class="fancy" data-fancybox="gallery">
-	const galleryLinkRegex = /<a[^>]*(?:class=["'][^"']*fancy[^"']*["']|data-fancybox=["'][^"']*gallery[^"']*["'])[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	// ONLY extract gallery links with class="fancy" or data-fancybox="gallery"
+	// These are the actual gallery images, not page thumbnails
+	
+	// Pattern 1: <a ...class="fancy"... href="image.jpg"...>
+	const galleryLinkRegex1 = /<a[^>]*class=["'][^"']*fancy[^"']*["'][^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
 	let match;
-	while ((match = galleryLinkRegex.exec(html)) !== null) {
+	while ((match = galleryLinkRegex1.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// PRIORITY 2: Reverse pattern (href before class/fancybox)
-	const galleryLinkRegex2 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*(?:class=["'][^"']*fancy[^"']*["']|data-fancybox=["'][^"']*gallery[^"']*["'])[^>]*>/gi;
+	// Pattern 2: <a ...href="image.jpg"...class="fancy"...>
+	const galleryLinkRegex2 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*class=["'][^"']*fancy[^"']*["'][^>]*>/gi;
 	while ((match = galleryLinkRegex2.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// PRIORITY 3: Any link to high-res image (not thumbnail)
-	const linkRegex = /<a[^>]+href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
-	while ((match = linkRegex.exec(html)) !== null) {
-		const imgUrl = match[1];
-		// Skip if it's a thumbnail
-		if (!imgUrl.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
-			imageUrls.add(imgUrl);
-		}
-	}
-
-	// PRIORITY 4: Direct image URLs in HTML (CDN links)
-	const cdnRegex = /https?:\/\/cdn\.[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)/gi;
-	while ((match = cdnRegex.exec(html)) !== null) {
-		const imgUrl = match[0];
-		// Skip thumbnails
-		if (!imgUrl.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
-			imageUrls.add(imgUrl);
-		}
-	}
-
-	// PRIORITY 5: img tags as fallback
-	const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
-	while ((match = imgRegex.exec(html)) !== null) {
+	// Pattern 3: <a ...data-fancybox="gallery"... href="image.jpg"...>
+	const galleryLinkRegex3 = /<a[^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	while ((match = galleryLinkRegex3.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// PRIORITY 6: img tags with data-src (lazy loading)
-	const dataSrcRegex = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi;
-	while ((match = dataSrcRegex.exec(html)) !== null) {
+	// Pattern 4: <a ...href="image.jpg"...data-fancybox="gallery"...>
+	const galleryLinkRegex4 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["'][^"']*gallery[^"']*["'][^>]*>/gi;
+	while ((match = galleryLinkRegex4.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
@@ -238,8 +220,8 @@ function filterHighQualityImages(urls) {
 		const cleanUrl = url.split('?')[0];
 		if (seen.has(cleanUrl)) continue;
 		
-		// Skip thumbnails with _wXXX pattern (e.g., _w400, _w800)
-		if (url.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
+		// Skip thumbnails with _wXXX or _masonry_XXX patterns
+		if (url.match(/_(w|masonry_)\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
 			continue;
 		}
 		
