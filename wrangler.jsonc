@@ -12,7 +12,18 @@
 	},
 	"compatibility_flags": [
 		"nodejs_compat"
-	]
+	],
+	/**
+	 * Environment Variables
+	 * Note: Sensitive values should be set as secrets using:
+	 * wrangler secret put TELEGRAM_BOT_TOKEN
+	 * wrangler secret put ALLOWED_USER_IDS
+	 */
+	"vars": {
+		// These are placeholders - actual values should be set as secrets
+		// "TELEGRAM_BOT_TOKEN": "your-bot-token-here",
+		// "ALLOWED_USER_IDS": "123456789,987654321"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
@@ -24,13 +35,6 @@
 	 * databases, object storage, AI inference, real-time communication and more.
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
-	/**
-	 * Environment Variables
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-	 * Note: Use secrets to store sensitive data.
-	 * https://developers.cloudflare.com/workers/configuration/secrets/
-	 */
-	// "vars": {  "MY_VARIABLE": "production_value" }
 	/**
 	 * Static Assets
 	 * https://developers.cloudflare.com/workers/static-assets/binding/
