@@ -158,8 +158,8 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
 	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
-	// Match: <a href="..." class="fancy" data-fancybox="...">
-	const regex1 = /<a[^>]*\s+href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*\s+class=["']?[^"']*fancy[^"']*["']?[^>]*\s+data-fancybox=["']?[^"']*["']?[^>]*>/gi;
+	// Match: <a> tags with class="fancy" or data-fancybox, href can be before or after
+	const regex1 = /<a\s+[^>]*?(?:class="[^"]*fancy[^"]*"|data-fancybox="[^"]*")[^>]*?href="([^"]+\.(?:jpg|jpeg|png|webp|gif))"/gi;
 	let match;
 	
 	while ((match = regex1.exec(html)) !== null) {
@@ -174,7 +174,8 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
 	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
-	const regex2 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png))["'][^>]*itemprop=["']?contentUrl["']?[^>]*>/gi;
+	// Match: <a> tags with itemprop="contentUrl", href can be before or after
+	const regex2 = /<a\s+[^>]*?itemprop="contentUrl"[^>]*?href="([^"]+\.(?:jpg|jpeg|png|webp|gif))"/gi;
 	
 	while ((match = regex2.exec(html)) !== null) {
 		imageUrls.push(match[1]);
