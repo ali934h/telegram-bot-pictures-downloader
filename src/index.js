@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 5: Fixed regex to handle both compressed and normal HTML
+ * Step 6: Added detailed logging to debug extraction
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -111,9 +111,10 @@ async function processUrl(chatId, url, env) {
 		}
 
 		const html = await response.text();
+		console.log('HTML length:', html.length);
 		
 		// Extract image URLs
-		const imageUrls = extractHighQualityImages(html, url);
+		const imageUrls = extractHighQualityImages(html, url, chatId, env);
 
 		if (imageUrls.length === 0) {
 			await sendMessage(
@@ -151,26 +152,69 @@ async function processUrl(chatId, url, env) {
 }
 
 /**
- * Extract high-quality image URLs from HTML
- * Handle both compressed HTML (classfancy) and normal HTML (class="fancy")
+ * Extract high-quality image URLs from HTML with detailed logging
  */
-function extractHighQualityImages(html, baseUrl) {
+function extractHighQualityImages(html, baseUrl, chatId, env) {
 	const imageUrls = new Set();
 	
-	// Extract <a> tags with class="fancy" or classfancy (compressed HTML)
-	// and data-fancybox="gallery-XX" or data-fancyboxgallery (compressed)
+	console.log('=== EXTRACTION DEBUG ===');
 	
-	// Pattern: <a href="https://cdn.../image.jpg" ... class[=]"fancy" or data-fancybox[=]"gallery-XX">
-	// This regex handles both normal and compressed HTML
-	const regex = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*(?:class=?["']?fancy|data-fancybox=?["']?gallery)[^>]*>/gi;
+	// Test different patterns
+	const patterns = [
+		// Pattern 1: Normal HTML with quotes
+		{
+			name: 'Normal with quotes',
+			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*class=["']fancy["'][^>]*>/gi
+		},
+		// Pattern 2: Compressed HTML without quotes
+		{
+			name: 'Compressed classfancy',
+			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*classfancy[^>]*>/gi
+		},
+		// Pattern 3: With data-fancybox
+		{
+			name: 'With data-fancybox',
+			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["']gallery[^>]*>/gi
+		},
+		// Pattern 4: Compressed data-fancybox
+		{
+			name: 'Compressed data-fancybox',
+			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*data-fancyboxgallery[^>]*>/gi
+		},
+		// Pattern 5: Any <a> with image extension
+		{
+			name: 'Any <a> with image',
+			regex: /<a[^>]*href=["'](https?:\/\/cdn[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*>/gi
+		}
+	];
 	
-	let match;
-	while ((match = regex.exec(html)) !== null) {
-		imageUrls.add(match[1]);
+	for (const pattern of patterns) {
+		const matches = [];
+		let match;
+		while ((match = pattern.regex.exec(html)) !== null) {
+			matches.push(match[1]);
+			imageUrls.add(match[1]);
+		}
+		console.log(`Pattern "${pattern.name}": ${matches.length} matches`);
+		if (matches.length > 0) {
+			console.log('Sample:', matches[0]);
+		}
 	}
-
+	
+	console.log('Total unique URLs found:', imageUrls.size);
+	
+	// Log first few URLs
+	const urlArray = Array.from(imageUrls);
+	if (urlArray.length > 0) {
+		console.log('First 3 URLs:');
+		urlArray.slice(0, 3).forEach((url, i) => {
+			console.log(`  ${i + 1}. ${url}`);
+		});
+	}
+	
 	// Convert to array and filter
-	const filtered = filterHighQualityImages(Array.from(imageUrls));
+	const filtered = filterHighQualityImages(urlArray);
+	console.log('After filtering:', filtered.length);
 	
 	return filtered;
 }
@@ -185,16 +229,20 @@ function filterHighQualityImages(urls) {
 	for (const url of urls) {
 		// Remove query parameters for deduplication
 		const cleanUrl = url.split('?')[0];
-		if (seen.has(cleanUrl)) continue;
+		if (seen.has(cleanUrl)) {
+			console.log('Skipped (duplicate):', url);
+			continue;
+		}
 		
 		// Skip masonry thumbnails (preview images)
 		if (url.includes('masonry')) {
+			console.log('Skipped (masonry):', url);
 			continue;
 		}
 		
 		// Skip images with size suffix like _w200, _w400, _w600, _w800
-		// But allow images without size suffix (original images)
 		if (url.match(/_w\d+\.(jpg|jpeg|png|webp|gif)$/i)) {
+			console.log('Skipped (_wXXX):', url);
 			continue;
 		}
 		
@@ -211,6 +259,7 @@ function filterHighQualityImages(urls) {
 			url.includes('-300x') ||
 			url.includes('_small')
 		) {
+			console.log('Skipped (thumbnail pattern):', url);
 			continue;
 		}
 
@@ -222,10 +271,12 @@ function filterHighQualityImages(urls) {
 			url.includes('adserver') ||
 			url.includes('advertising')
 		) {
+			console.log('Skipped (ad domain):', url);
 			continue;
 		}
 
 		// Add to filtered list
+		console.log('Added:', url);
 		filtered.push(url);
 		seen.add(cleanUrl);
 	}
