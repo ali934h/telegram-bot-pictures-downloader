@@ -17,7 +17,7 @@ export default {
 			const update = await request.json();
 			
 			// Handle incoming message (not edited message)
-			if (update.message && !update.edited_message) {
+			if (update.message && !update.message.edited_message) {
 				// Use ctx.waitUntil for background processing
 				ctx.waitUntil(handleMessage(update.message, env));
 			}
@@ -166,18 +166,18 @@ function normalizeUrl(url) {
 function extractHighQualityImages(html) {
 	let imageUrls = [];
 	
-	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
-	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
-	// Match: <a href="..." ... class="fancy" data-fancybox="..."> OR <a class="fancy" ... href="...">
-	// Support both absolute URLs (http://, https://) and protocol-relative URLs (//)
-	const regex1 = /<a\s+[^>]*?(?:href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?class="[^"]*fancy[^"]*"|class="[^"]*fancy[^"]*"[^>]*?href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
+	// ========== STRATEGY 1: class="fancy" (EliteBabes, etc.) ==========
+	console.log('🔍 Trying Strategy 1: class="fancy"');
+	// Simplified: Find all <a> tags that have class="fancy" somewhere, extract href
+	const regex1 = /<a\s+([^>]*class="[^"]*fancy[^"]*"[^>]*)>/gi;
 	let match;
 	
 	while ((match = regex1.exec(html)) !== null) {
-		// One of the two capture groups will have the URL
-		const imageUrl = match[1] || match[2];
-		if (imageUrl) {
-			imageUrls.push(normalizeUrl(imageUrl));
+		const tagContent = match[1];
+		// Extract href from the tag content
+		const hrefMatch = /href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"/i.exec(tagContent);
+		if (hrefMatch) {
+			imageUrls.push(normalizeUrl(hrefMatch[1]));
 		}
 	}
 	
@@ -189,15 +189,15 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
 	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
-	// Match: <a href="..." itemprop="contentUrl"> OR <a itemprop="contentUrl" href="...">
-	// Support both absolute URLs (http://, https://) and protocol-relative URLs (//)
-	const regex2 = /<a\s+[^>]*?(?:href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?itemprop="contentUrl"|itemprop="contentUrl"[^>]*?href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
+	// Simplified: Find all <a> tags that have itemprop="contentUrl" somewhere, extract href
+	const regex2 = /<a\s+([^>]*itemprop="contentUrl"[^>]*)>/gi;
 	
 	while ((match = regex2.exec(html)) !== null) {
-		// One of the two capture groups will have the URL
-		const imageUrl = match[1] || match[2];
-		if (imageUrl) {
-			imageUrls.push(normalizeUrl(imageUrl));
+		const tagContent = match[1];
+		// Extract href from the tag content
+		const hrefMatch = /href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"/i.exec(tagContent);
+		if (hrefMatch) {
+			imageUrls.push(normalizeUrl(hrefMatch[1]));
 		}
 	}
 	
@@ -208,15 +208,6 @@ function extractHighQualityImages(html) {
 	console.log('❌ Strategy 2 found no images, trying next strategy...');
 	
 	// ========== STRATEGY 3: Future strategies can be added here ==========
-	// Example:
-	// const regex3 = /your-pattern-here/gi;
-	// while ((match = regex3.exec(html)) !== null) {
-	//   imageUrls.push(normalizeUrl(match[1]));
-	// }
-	// if (imageUrls.length > 0) {
-	//   console.log(`✅ Strategy 3 found ${imageUrls.length} images`);
-	//   return filterHighQualityImages(imageUrls);
-	// }
 	
 	console.log('❌ No images found with any strategy');
 	return [];
