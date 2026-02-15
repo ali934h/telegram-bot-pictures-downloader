@@ -158,7 +158,8 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
 	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
-	const regex1 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*(?:class=?["']?fancy|data-fancybox=?["']?gallery)[^>]*>/gi;
+	// Match: <a href="..." class="fancy" data-fancybox="...">
+	const regex1 = /<a[^>]*\s+href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*\s+class=["']?[^"']*fancy[^"']*["']?[^>]*\s+data-fancybox=["']?[^"']*["']?[^>]*>/gi;
 	let match;
 	
 	while ((match = regex1.exec(html)) !== null) {
