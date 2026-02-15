@@ -51,7 +51,7 @@ async function handleMessage(message, env) {
 	if (!isAuthorized(userId, env)) {
 		await sendMessage(
 			chatId,
-			`❌ Access Denied\\n\\nYour User ID: ${userId}\\n\\nThis bot is private. Contact the owner to get access.`,
+			`❌ Access Denied\n\nYour User ID: ${userId}\n\nThis bot is private. Contact the owner to get access.`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 		return;
@@ -61,7 +61,7 @@ async function handleMessage(message, env) {
 	if (text === '/start') {
 		await sendMessage(
 			chatId,
-			`✅ Welcome! You are authorized.\\n\\nSend me a URL to download high-quality images from that page.\\n\\nYour User ID: ${userId}`,
+			`✅ Welcome! You are authorized.\n\nSend me a URL to download high-quality images from that page.\n\nYour User ID: ${userId}`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 		return;
@@ -127,7 +127,7 @@ async function processUrl(chatId, url, env) {
 		// Send summary
 		await sendMessage(
 			chatId,
-			`✅ Found ${imageUrls.length} high-quality image(s).\\n\\n🔄 Starting download and delivery...`,
+			`✅ Found ${imageUrls.length} high-quality image(s).\n\n🔄 Starting download and delivery...`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 
@@ -151,6 +151,16 @@ async function processUrl(chatId, url, env) {
 }
 
 /**
+ * Normalize URL - convert protocol-relative URLs (//domain.com) to https://
+ */
+function normalizeUrl(url) {
+	if (url.startsWith('//')) {
+		return 'https:' + url;
+	}
+	return url;
+}
+
+/**
  * Extract high-quality image URLs using multi-strategy fallback
  */
 function extractHighQualityImages(html) {
@@ -159,14 +169,15 @@ function extractHighQualityImages(html) {
 	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
 	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
 	// Match: <a href="..." ... class="fancy" data-fancybox="..."> OR <a class="fancy" ... href="...">
-	const regex1 = /<a\s+[^>]*?(?:href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?class="[^"]*fancy[^"]*"|class="[^"]*fancy[^"]*"[^>]*?href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
+	// Support both absolute URLs (http://, https://) and protocol-relative URLs (//)
+	const regex1 = /<a\s+[^>]*?(?:href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?class="[^"]*fancy[^"]*"|class="[^"]*fancy[^"]*"[^>]*?href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
 	let match;
 	
 	while ((match = regex1.exec(html)) !== null) {
 		// One of the two capture groups will have the URL
 		const imageUrl = match[1] || match[2];
 		if (imageUrl) {
-			imageUrls.push(imageUrl);
+			imageUrls.push(normalizeUrl(imageUrl));
 		}
 	}
 	
@@ -179,13 +190,14 @@ function extractHighQualityImages(html) {
 	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
 	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
 	// Match: <a href="..." itemprop="contentUrl"> OR <a itemprop="contentUrl" href="...">
-	const regex2 = /<a\s+[^>]*?(?:href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?itemprop="contentUrl"|itemprop="contentUrl"[^>]*?href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
+	// Support both absolute URLs (http://, https://) and protocol-relative URLs (//)
+	const regex2 = /<a\s+[^>]*?(?:href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?itemprop="contentUrl"|itemprop="contentUrl"[^>]*?href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
 	
 	while ((match = regex2.exec(html)) !== null) {
 		// One of the two capture groups will have the URL
 		const imageUrl = match[1] || match[2];
 		if (imageUrl) {
-			imageUrls.push(imageUrl);
+			imageUrls.push(normalizeUrl(imageUrl));
 		}
 	}
 	
@@ -199,7 +211,7 @@ function extractHighQualityImages(html) {
 	// Example:
 	// const regex3 = /your-pattern-here/gi;
 	// while ((match = regex3.exec(html)) !== null) {
-	//   imageUrls.push(match[1]);
+	//   imageUrls.push(normalizeUrl(match[1]));
 	// }
 	// if (imageUrls.length > 0) {
 	//   console.log(`✅ Strategy 3 found ${imageUrls.length} images`);
@@ -230,6 +242,9 @@ function filterHighQualityImages(urls) {
 		
 		// Skip WebP thumbnails for DefineBabe (we want JPG originals)
 		if (url.includes('definebabe.com') && url.endsWith('.webp')) continue;
+		
+		// Skip thumbnail patterns with underscore (e.g., 01_.webp)
+		if (url.match(/_\.(?:webp|jpg|jpeg|png|gif)$/i)) continue;
 		
 		// Skip common thumbnail patterns
 		if (
