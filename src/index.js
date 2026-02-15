@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 4: Extract from <a href> not <img srcset>
+ * Step 5: Fixed regex to handle both compressed and normal HTML
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -152,36 +152,20 @@ async function processUrl(chatId, url, env) {
 
 /**
  * Extract high-quality image URLs from HTML
- * Extract from <a href> tags with class="fancy" or data-fancybox="gallery"
+ * Handle both compressed HTML (classfancy) and normal HTML (class="fancy")
  */
 function extractHighQualityImages(html, baseUrl) {
 	const imageUrls = new Set();
 	
-	// Extract <a> tags with class="fancy" or data-fancybox="gallery-XX"
-	// These <a href> point to the original full-size images
+	// Extract <a> tags with class="fancy" or classfancy (compressed HTML)
+	// and data-fancybox="gallery-XX" or data-fancyboxgallery (compressed)
 	
-	// Pattern 1: <a class="fancy" ... href="https://cdn.elitebabes.com/.../image.jpg">
-	const regex1 = /<a[^>]*class="fancy"[^>]*href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*>/gi;
+	// Pattern: <a href="https://cdn.../image.jpg" ... class[=]"fancy" or data-fancybox[=]"gallery-XX">
+	// This regex handles both normal and compressed HTML
+	const regex = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*(?:class=?["']?fancy|data-fancybox=?["']?gallery)[^>]*>/gi;
+	
 	let match;
-	while ((match = regex1.exec(html)) !== null) {
-		imageUrls.add(match[1]);
-	}
-	
-	// Pattern 2: <a href="https://cdn..." ... class="fancy">
-	const regex2 = /<a[^>]*href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*class="fancy"[^>]*>/gi;
-	while ((match = regex2.exec(html)) !== null) {
-		imageUrls.add(match[1]);
-	}
-	
-	// Pattern 3: <a data-fancybox="gallery-01" ... href="https://cdn...">
-	const regex3 = /<a[^>]*data-fancybox="gallery-[^"]*"[^>]*href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*>/gi;
-	while ((match = regex3.exec(html)) !== null) {
-		imageUrls.add(match[1]);
-	}
-	
-	// Pattern 4: <a href="https://cdn..." ... data-fancybox="gallery-01">
-	const regex4 = /<a[^>]*href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*data-fancybox="gallery-[^"]*"[^>]*>/gi;
-	while ((match = regex4.exec(html)) !== null) {
+	while ((match = regex.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
