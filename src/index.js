@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 7: Send debug logs as Telegram messages
+ * Multi-strategy image extraction with fallback mechanism
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -112,11 +112,8 @@ async function processUrl(chatId, url, env) {
 
 		const html = await response.text();
 		
-		// Extract image URLs with debug info
-		const { imageUrls, debugInfo } = await extractHighQualityImages(html, url, chatId, env);
-
-		// Send debug info
-		await sendMessage(chatId, debugInfo, env.TELEGRAM_BOT_TOKEN);
+		// Extract image URLs using multi-strategy approach
+		const imageUrls = extractHighQualityImages(html);
 
 		if (imageUrls.length === 0) {
 			await sendMessage(
@@ -154,77 +151,57 @@ async function processUrl(chatId, url, env) {
 }
 
 /**
- * Extract high-quality image URLs from HTML with debug info
+ * Extract high-quality image URLs using multi-strategy fallback
  */
-async function extractHighQualityImages(html, baseUrl, chatId, env) {
-	const imageUrls = new Set();
-	let debugMsg = '🔍 DEBUG INFO:\n\n';
+function extractHighQualityImages(html) {
+	let imageUrls = [];
 	
-	debugMsg += `HTML length: ${html.length}\n\n`;
+	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
+	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
+	const regex1 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*(?:class=?["']?fancy|data-fancybox=?["']?gallery)[^>]*>/gi;
+	let match;
 	
-	// Test different patterns
-	const patterns = [
-		{
-			name: 'Pattern 1: class="fancy"',
-			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*class=["']fancy["'][^>]*>/gi
-		},
-		{
-			name: 'Pattern 2: classfancy',
-			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*classfancy[^>]*>/gi
-		},
-		{
-			name: 'Pattern 3: data-fancybox',
-			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["']gallery[^>]*>/gi
-		},
-		{
-			name: 'Pattern 4: Any CDN image',
-			regex: /<a[^>]*href=["'](https?:\/\/cdn[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*>/gi
-		}
-	];
-	
-	for (const pattern of patterns) {
-		const matches = [];
-		let match;
-		pattern.regex.lastIndex = 0; // Reset regex
-		while ((match = pattern.regex.exec(html)) !== null) {
-			matches.push(match[1]);
-			imageUrls.add(match[1]);
-		}
-		debugMsg += `${pattern.name}: ${matches.length} matches\n`;
-		if (matches.length > 0 && matches.length <= 2) {
-			debugMsg += `  Sample: ${matches[0]}\n`;
-		}
+	while ((match = regex1.exec(html)) !== null) {
+		imageUrls.push(match[1]);
 	}
 	
-	debugMsg += `\nTotal unique: ${imageUrls.size}\n\n`;
+	if (imageUrls.length > 0) {
+		console.log(`✅ Strategy 1 found ${imageUrls.length} images`);
+		return filterHighQualityImages(imageUrls);
+	}
+	console.log('❌ Strategy 1 found no images, trying next strategy...');
 	
-	// Show first 3 URLs before filtering
-	const urlArray = Array.from(imageUrls);
-	if (urlArray.length > 0) {
-		debugMsg += 'Before filter (first 3):\n';
-		urlArray.slice(0, 3).forEach((url, i) => {
-			const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
-			debugMsg += `${i + 1}. ${shortUrl}\n`;
-		});
+	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
+	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
+	const regex2 = /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png))["'][^>]*itemprop=["']?contentUrl["']?[^>]*>/gi;
+	
+	while ((match = regex2.exec(html)) !== null) {
+		imageUrls.push(match[1]);
 	}
 	
-	// Filter
-	const filtered = filterHighQualityImages(urlArray);
-	debugMsg += `\nAfter filter: ${filtered.length}\n`;
-	
-	if (filtered.length > 0) {
-		debugMsg += '\nFiltered URLs (first 3):\n';
-		filtered.slice(0, 3).forEach((url, i) => {
-			const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
-			debugMsg += `${i + 1}. ${shortUrl}\n`;
-		});
+	if (imageUrls.length > 0) {
+		console.log(`✅ Strategy 2 found ${imageUrls.length} images`);
+		return filterHighQualityImages(imageUrls);
 	}
+	console.log('❌ Strategy 2 found no images, trying next strategy...');
 	
-	return { imageUrls: filtered, debugInfo: debugMsg };
+	// ========== STRATEGY 3: Future strategies can be added here ==========
+	// Example:
+	// const regex3 = /your-pattern-here/gi;
+	// while ((match = regex3.exec(html)) !== null) {
+	//   imageUrls.push(match[1]);
+	// }
+	// if (imageUrls.length > 0) {
+	//   console.log(`✅ Strategy 3 found ${imageUrls.length} images`);
+	//   return filterHighQualityImages(imageUrls);
+	// }
+	
+	console.log('❌ No images found with any strategy');
+	return [];
 }
 
 /**
- * Filter out unwanted images
+ * Filter out unwanted images (thumbnails, ads, etc.)
  */
 function filterHighQualityImages(urls) {
 	const filtered = [];
@@ -238,8 +215,11 @@ function filterHighQualityImages(urls) {
 		// Skip masonry thumbnails
 		if (url.includes('masonry')) continue;
 		
-		// Skip images with size suffix
+		// Skip images with size suffix (e.g., _w400.jpg, _w800.jpg)
 		if (url.match(/_w\d+\.(jpg|jpeg|png|webp|gif)$/i)) continue;
+		
+		// Skip WebP thumbnails for DefineBabe (we want JPG originals)
+		if (url.includes('definebabe.com') && url.endsWith('.webp')) continue;
 		
 		// Skip common thumbnail patterns
 		if (
