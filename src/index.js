@@ -51,7 +51,7 @@ async function handleMessage(message, env) {
 	if (!isAuthorized(userId, env)) {
 		await sendMessage(
 			chatId,
-			`❌ Access Denied\n\nYour User ID: ${userId}\n\nThis bot is private. Contact the owner to get access.`,
+			`❌ Access Denied\\n\\nYour User ID: ${userId}\\n\\nThis bot is private. Contact the owner to get access.`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 		return;
@@ -61,7 +61,7 @@ async function handleMessage(message, env) {
 	if (text === '/start') {
 		await sendMessage(
 			chatId,
-			`✅ Welcome! You are authorized.\n\nSend me a URL to download high-quality images from that page.\n\nYour User ID: ${userId}`,
+			`✅ Welcome! You are authorized.\\n\\nSend me a URL to download high-quality images from that page.\\n\\nYour User ID: ${userId}`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 		return;
@@ -127,7 +127,7 @@ async function processUrl(chatId, url, env) {
 		// Send summary
 		await sendMessage(
 			chatId,
-			`✅ Found ${imageUrls.length} high-quality image(s).\n\n🔄 Starting download and delivery...`,
+			`✅ Found ${imageUrls.length} high-quality image(s).\\n\\n🔄 Starting download and delivery...`,
 			env.TELEGRAM_BOT_TOKEN
 		);
 
@@ -158,12 +158,16 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 1: class="fancy" / data-fancybox (EliteBabes, etc.) ==========
 	console.log('🔍 Trying Strategy 1: class="fancy" / data-fancybox');
-	// Match: <a> tags with class="fancy" or data-fancybox, href can be before or after
-	const regex1 = /<a\s+[^>]*?(?:class="[^"]*fancy[^"]*"|data-fancybox="[^"]*")[^>]*?href="([^"]+\.(?:jpg|jpeg|png|webp|gif))"/gi;
+	// Match: <a href="..." ... class="fancy" data-fancybox="..."> OR <a class="fancy" ... href="...">
+	const regex1 = /<a\s+[^>]*?(?:href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?class="[^"]*fancy[^"]*"|class="[^"]*fancy[^"]*"[^>]*?href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
 	let match;
 	
 	while ((match = regex1.exec(html)) !== null) {
-		imageUrls.push(match[1]);
+		// One of the two capture groups will have the URL
+		const imageUrl = match[1] || match[2];
+		if (imageUrl) {
+			imageUrls.push(imageUrl);
+		}
 	}
 	
 	if (imageUrls.length > 0) {
@@ -174,11 +178,15 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
 	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
-	// Match: <a> tags with itemprop="contentUrl", href can be before or after
-	const regex2 = /<a\s+[^>]*?itemprop="contentUrl"[^>]*?href="([^"]+\.(?:jpg|jpeg|png|webp|gif))"/gi;
+	// Match: <a href="..." itemprop="contentUrl"> OR <a itemprop="contentUrl" href="...">
+	const regex2 = /<a\s+[^>]*?(?:href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"[^>]*?itemprop="contentUrl"|itemprop="contentUrl"[^>]*?href="(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))")[^>]*?>/gi;
 	
 	while ((match = regex2.exec(html)) !== null) {
-		imageUrls.push(match[1]);
+		// One of the two capture groups will have the URL
+		const imageUrl = match[1] || match[2];
+		if (imageUrl) {
+			imageUrls.push(imageUrl);
+		}
 	}
 	
 	if (imageUrls.length > 0) {
