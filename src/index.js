@@ -17,7 +17,7 @@ export default {
 			const update = await request.json();
 			
 			// Handle incoming message (not edited message)
-			if (update.message && !update.message.edited_message) {
+			if (update.message && !update.edited_message) {
 				// Use ctx.waitUntil for background processing
 				ctx.waitUntil(handleMessage(update.message, env));
 			}
@@ -164,21 +164,16 @@ function normalizeUrl(url) {
  * Extract high-quality image URLs using multi-strategy fallback
  */
 function extractHighQualityImages(html) {
-	let imageUrls = [];
-	
-	// ========== STRATEGY 1: class="fancy" (EliteBabes, etc.) ==========
-	console.log('🔍 Trying Strategy 1: class="fancy"');
-	// Simplified: Find all <a> tags that have class="fancy" somewhere, extract href
-	const regex1 = /<a\s+([^>]*class="[^"]*fancy[^"]*"[^>]*)>/gi;
+	const imageUrls = [];
 	let match;
 	
+	// ========== STRATEGY 1: CDN images (EliteBabes, etc.) ==========
+	console.log('🔍 Trying Strategy 1: CDN pattern');
+	// Simple pattern: Any <a> tag with href pointing to CDN images
+	const regex1 = /<a[^>]*href=["'](https?:\/\/cdn[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	
 	while ((match = regex1.exec(html)) !== null) {
-		const tagContent = match[1];
-		// Extract href from the tag content
-		const hrefMatch = /href="((?:https?:)?\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))"/i.exec(tagContent);
-		if (hrefMatch) {
-			imageUrls.push(normalizeUrl(hrefMatch[1]));
-		}
+		imageUrls.push(match[1]);
 	}
 	
 	if (imageUrls.length > 0) {
@@ -189,7 +184,7 @@ function extractHighQualityImages(html) {
 	
 	// ========== STRATEGY 2: itemprop="contentUrl" (DefineBabe, etc.) ==========
 	console.log('🔍 Trying Strategy 2: itemprop="contentUrl"');
-	// Simplified: Find all <a> tags that have itemprop="contentUrl" somewhere, extract href
+	// Match: <a> tags with itemprop="contentUrl", extract href
 	const regex2 = /<a\s+([^>]*itemprop="contentUrl"[^>]*)>/gi;
 	
 	while ((match = regex2.exec(html)) !== null) {
