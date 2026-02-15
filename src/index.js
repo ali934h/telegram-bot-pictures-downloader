@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 2: Fix infinite loop issue
+ * Step 3: Improved image extraction for gallery sites
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -113,7 +113,7 @@ async function processUrl(chatId, url, env) {
 		const html = await response.text();
 		
 		// Extract image URLs
-		const imageUrls = await extractHighQualityImages(html, url);
+		const imageUrls = extractHighQualityImages(html, url);
 
 		if (imageUrls.length === 0) {
 			await sendMessage(
@@ -152,33 +152,55 @@ async function processUrl(chatId, url, env) {
 
 /**
  * Extract high-quality image URLs from HTML
+ * Priority: Gallery links (full quality) > Direct image URLs > img tags
  */
-async function extractHighQualityImages(html, baseUrl) {
+function extractHighQualityImages(html, baseUrl) {
 	const imageUrls = new Set();
 	
-	// Pattern 1: Find img tags with src
-	const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+	// PRIORITY 1: Gallery links with full-quality images
+	// Pattern: <a href="...jpg" class="fancy" data-fancybox="gallery">
+	const galleryLinkRegex = /<a[^>]*(?:class=["'][^"']*fancy[^"']*["']|data-fancybox=["'][^"']*gallery[^"']*["'])[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
 	let match;
+	while ((match = galleryLinkRegex.exec(html)) !== null) {
+		imageUrls.add(match[1]);
+	}
+
+	// PRIORITY 2: Reverse pattern (href before class/fancybox)
+	const galleryLinkRegex2 = /<a[^>]*href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*(?:class=["'][^"']*fancy[^"']*["']|data-fancybox=["'][^"']*gallery[^"']*["'])[^>]*>/gi;
+	while ((match = galleryLinkRegex2.exec(html)) !== null) {
+		imageUrls.add(match[1]);
+	}
+
+	// PRIORITY 3: Any link to high-res image (not thumbnail)
+	const linkRegex = /<a[^>]+href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
+	while ((match = linkRegex.exec(html)) !== null) {
+		const imgUrl = match[1];
+		// Skip if it's a thumbnail
+		if (!imgUrl.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
+			imageUrls.add(imgUrl);
+		}
+	}
+
+	// PRIORITY 4: Direct image URLs in HTML (CDN links)
+	const cdnRegex = /https?:\/\/cdn\.[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)/gi;
+	while ((match = cdnRegex.exec(html)) !== null) {
+		const imgUrl = match[0];
+		// Skip thumbnails
+		if (!imgUrl.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
+			imageUrls.add(imgUrl);
+		}
+	}
+
+	// PRIORITY 5: img tags as fallback
+	const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
 	while ((match = imgRegex.exec(html)) !== null) {
 		imageUrls.add(match[1]);
 	}
 
-	// Pattern 2: Find img tags with data-src (lazy loading)
+	// PRIORITY 6: img tags with data-src (lazy loading)
 	const dataSrcRegex = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi;
 	while ((match = dataSrcRegex.exec(html)) !== null) {
 		imageUrls.add(match[1]);
-	}
-
-	// Pattern 3: Find links to image files
-	const linkRegex = /<a[^>]+href=["']([^"']+\.(jpg|jpeg|png|webp|gif))["'][^>]*>/gi;
-	while ((match = linkRegex.exec(html)) !== null) {
-		imageUrls.add(match[1]);
-	}
-
-	// Pattern 4: Find direct image URLs in text
-	const directUrlRegex = /https?:\/\/[^\s"'<>]+\.(jpg|jpeg|png|webp|gif)/gi;
-	while ((match = directUrlRegex.exec(html)) !== null) {
-		imageUrls.add(match[0]);
 	}
 
 	// Convert relative URLs to absolute
@@ -189,13 +211,17 @@ async function extractHighQualityImages(html, baseUrl) {
 			const base = new URL(baseUrl);
 			return base.origin + url;
 		} else if (!url.startsWith('http')) {
-			return new URL(url, baseUrl).href;
+			try {
+				return new URL(url, baseUrl).href;
+			} catch {
+				return url;
+			}
 		}
 		return url;
 	});
 
 	// Filter high-quality images
-	const filtered = await filterHighQualityImages(absoluteUrls);
+	const filtered = filterHighQualityImages(absoluteUrls);
 	
 	return filtered;
 }
@@ -203,10 +229,20 @@ async function extractHighQualityImages(html, baseUrl) {
 /**
  * Filter out thumbnails, logos, and ads - keep only high-quality images
  */
-async function filterHighQualityImages(urls) {
+function filterHighQualityImages(urls) {
 	const filtered = [];
+	const seen = new Set();
 	
 	for (const url of urls) {
+		// Remove query parameters for deduplication
+		const cleanUrl = url.split('?')[0];
+		if (seen.has(cleanUrl)) continue;
+		
+		// Skip thumbnails with _wXXX pattern (e.g., _w400, _w800)
+		if (url.match(/_w\d{2,4}\.(jpg|jpeg|png|webp|gif)$/i)) {
+			continue;
+		}
+		
 		// Skip common thumbnail/icon patterns
 		if (
 			url.includes('thumb') ||
@@ -219,8 +255,7 @@ async function filterHighQualityImages(urls) {
 			url.includes('-150x') ||
 			url.includes('-300x') ||
 			url.includes('_small') ||
-			url.includes('_thumb') ||
-			url.match(/\d+x\d+/) && !url.match(/\d{3,}x\d{3,}/) // Skip small dimensions like 50x50
+			url.includes('_thumb')
 		) {
 			continue;
 		}
@@ -236,40 +271,14 @@ async function filterHighQualityImages(urls) {
 			continue;
 		}
 
-		// Check if image is large enough
-		try {
-			const isLarge = await isLargeImage(url);
-			if (isLarge) {
-				filtered.push(url);
-			}
-		} catch (error) {
-			// If we can't check size, include it anyway
+		// Only include image URLs
+		if (url.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
 			filtered.push(url);
+			seen.add(cleanUrl);
 		}
 	}
 
 	return filtered;
-}
-
-/**
- * Check if image is large enough (high quality)
- */
-async function isLargeImage(url) {
-	try {
-		const response = await fetch(url, { method: 'HEAD' });
-		if (!response.ok) return false;
-		
-		const contentLength = response.headers.get('content-length');
-		if (contentLength) {
-			const sizeInKB = parseInt(contentLength) / 1024;
-			// Images larger than 100KB are likely high quality
-			return sizeInKB > 100;
-		}
-		
-		return true; // If no content-length, assume it's good
-	} catch (error) {
-		return true; // If check fails, include the image
-	}
 }
 
 /**
