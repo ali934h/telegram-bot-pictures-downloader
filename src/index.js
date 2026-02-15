@@ -1,6 +1,6 @@
 /**
  * Telegram Bot - Picture Downloader
- * Step 6: Added detailed logging to debug extraction
+ * Step 7: Send debug logs as Telegram messages
  */
 
 // Track processing URLs to prevent duplicate processing
@@ -111,10 +111,12 @@ async function processUrl(chatId, url, env) {
 		}
 
 		const html = await response.text();
-		console.log('HTML length:', html.length);
 		
-		// Extract image URLs
-		const imageUrls = extractHighQualityImages(html, url, chatId, env);
+		// Extract image URLs with debug info
+		const { imageUrls, debugInfo } = await extractHighQualityImages(html, url, chatId, env);
+
+		// Send debug info
+		await sendMessage(chatId, debugInfo, env.TELEGRAM_BOT_TOKEN);
 
 		if (imageUrls.length === 0) {
 			await sendMessage(
@@ -152,38 +154,30 @@ async function processUrl(chatId, url, env) {
 }
 
 /**
- * Extract high-quality image URLs from HTML with detailed logging
+ * Extract high-quality image URLs from HTML with debug info
  */
-function extractHighQualityImages(html, baseUrl, chatId, env) {
+async function extractHighQualityImages(html, baseUrl, chatId, env) {
 	const imageUrls = new Set();
+	let debugMsg = '🔍 DEBUG INFO:\n\n';
 	
-	console.log('=== EXTRACTION DEBUG ===');
+	debugMsg += `HTML length: ${html.length}\n\n`;
 	
 	// Test different patterns
 	const patterns = [
-		// Pattern 1: Normal HTML with quotes
 		{
-			name: 'Normal with quotes',
+			name: 'Pattern 1: class="fancy"',
 			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*class=["']fancy["'][^>]*>/gi
 		},
-		// Pattern 2: Compressed HTML without quotes
 		{
-			name: 'Compressed classfancy',
+			name: 'Pattern 2: classfancy',
 			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*classfancy[^>]*>/gi
 		},
-		// Pattern 3: With data-fancybox
 		{
-			name: 'With data-fancybox',
+			name: 'Pattern 3: data-fancybox',
 			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*data-fancybox=["']gallery[^>]*>/gi
 		},
-		// Pattern 4: Compressed data-fancybox
 		{
-			name: 'Compressed data-fancybox',
-			regex: /<a[^>]*href=["'](https?:\/\/[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*data-fancyboxgallery[^>]*>/gi
-		},
-		// Pattern 5: Any <a> with image extension
-		{
-			name: 'Any <a> with image',
+			name: 'Pattern 4: Any CDN image',
 			regex: /<a[^>]*href=["'](https?:\/\/cdn[^"']+\.(?:jpg|jpeg|png|webp|gif))["'][^>]*>/gi
 		}
 	];
@@ -191,32 +185,42 @@ function extractHighQualityImages(html, baseUrl, chatId, env) {
 	for (const pattern of patterns) {
 		const matches = [];
 		let match;
+		pattern.regex.lastIndex = 0; // Reset regex
 		while ((match = pattern.regex.exec(html)) !== null) {
 			matches.push(match[1]);
 			imageUrls.add(match[1]);
 		}
-		console.log(`Pattern "${pattern.name}": ${matches.length} matches`);
-		if (matches.length > 0) {
-			console.log('Sample:', matches[0]);
+		debugMsg += `${pattern.name}: ${matches.length} matches\n`;
+		if (matches.length > 0 && matches.length <= 2) {
+			debugMsg += `  Sample: ${matches[0]}\n`;
 		}
 	}
 	
-	console.log('Total unique URLs found:', imageUrls.size);
+	debugMsg += `\nTotal unique: ${imageUrls.size}\n\n`;
 	
-	// Log first few URLs
+	// Show first 3 URLs before filtering
 	const urlArray = Array.from(imageUrls);
 	if (urlArray.length > 0) {
-		console.log('First 3 URLs:');
+		debugMsg += 'Before filter (first 3):\n';
 		urlArray.slice(0, 3).forEach((url, i) => {
-			console.log(`  ${i + 1}. ${url}`);
+			const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
+			debugMsg += `${i + 1}. ${shortUrl}\n`;
 		});
 	}
 	
-	// Convert to array and filter
+	// Filter
 	const filtered = filterHighQualityImages(urlArray);
-	console.log('After filtering:', filtered.length);
+	debugMsg += `\nAfter filter: ${filtered.length}\n`;
 	
-	return filtered;
+	if (filtered.length > 0) {
+		debugMsg += '\nFiltered URLs (first 3):\n';
+		filtered.slice(0, 3).forEach((url, i) => {
+			const shortUrl = url.length > 60 ? url.substring(0, 60) + '...' : url;
+			debugMsg += `${i + 1}. ${shortUrl}\n`;
+		});
+	}
+	
+	return { imageUrls: filtered, debugInfo: debugMsg };
 }
 
 /**
@@ -229,22 +233,13 @@ function filterHighQualityImages(urls) {
 	for (const url of urls) {
 		// Remove query parameters for deduplication
 		const cleanUrl = url.split('?')[0];
-		if (seen.has(cleanUrl)) {
-			console.log('Skipped (duplicate):', url);
-			continue;
-		}
+		if (seen.has(cleanUrl)) continue;
 		
-		// Skip masonry thumbnails (preview images)
-		if (url.includes('masonry')) {
-			console.log('Skipped (masonry):', url);
-			continue;
-		}
+		// Skip masonry thumbnails
+		if (url.includes('masonry')) continue;
 		
-		// Skip images with size suffix like _w200, _w400, _w600, _w800
-		if (url.match(/_w\d+\.(jpg|jpeg|png|webp|gif)$/i)) {
-			console.log('Skipped (_wXXX):', url);
-			continue;
-		}
+		// Skip images with size suffix
+		if (url.match(/_w\d+\.(jpg|jpeg|png|webp|gif)$/i)) continue;
 		
 		// Skip common thumbnail patterns
 		if (
@@ -258,10 +253,7 @@ function filterHighQualityImages(urls) {
 			url.includes('-150x') ||
 			url.includes('-300x') ||
 			url.includes('_small')
-		) {
-			console.log('Skipped (thumbnail pattern):', url);
-			continue;
-		}
+		) continue;
 
 		// Skip ad domains
 		if (
@@ -270,13 +262,9 @@ function filterHighQualityImages(urls) {
 			url.includes('googleadservices') ||
 			url.includes('adserver') ||
 			url.includes('advertising')
-		) {
-			console.log('Skipped (ad domain):', url);
-			continue;
-		}
+		) continue;
 
 		// Add to filtered list
-		console.log('Added:', url);
 		filtered.push(url);
 		seen.add(cleanUrl);
 	}
